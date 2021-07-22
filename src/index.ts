@@ -4,6 +4,7 @@ import querystring from 'querystring';
 import axios from 'axios';
 import crypto from 'crypto';
 import mysql from 'promise-mysql';
+import nodemailer from 'nodemailer';
 
 // [START cloud_sql_mysql_mysql_create_socket]
 const createUnixSocketPool = async (config: any) => {
@@ -89,6 +90,16 @@ const db = new Firestore({
 const collection = db.collection('requests');
 const accounts = db.collection('accounts');
 
+async function createOrUpadateMySQLAccount( account: string, password: string ) {
+  pool = pool || (await createPoolAndEnsureSchema());
+  await pool.query( 'create user if not exists ? identified by ?', [account,password]);
+  await pool.query( 'alter user if exists ? identified by ?', [account,password]);
+  await pool.query( 'grant select on employees.* to ?', [account]);
+  await pool.query( 'grant select on menagerie.* to ?', [account]);
+  await pool.query( 'grant select on sakila.* to ?', [account]);
+  await pool.query( 'grant select on world_x.* to ?', [account]);
+}
+
 async function getAccountFromEmail( email: string ) {
   const snapshot = await accounts
     .where( 'email', '==', email )
@@ -148,6 +159,7 @@ export const nicMySQL: HttpFunction = async (req, res) => {
             const result = doc.data();
             lastAccount = result.account;
           });
+          await createOrUpadateMySQLAccount( lastAccount, req.body.password );
           message = `Updated account: ${lastAccount}`;
         } else {
           let lastAccount = ''
@@ -170,13 +182,8 @@ export const nicMySQL: HttpFunction = async (req, res) => {
             email,
             account
           } );
+          await createOrUpadateMySQLAccount( account, req.body.password );
           message = `Added new account: ${account}`;
-          pool = pool || (await createPoolAndEnsureSchema());
-          const usersQuery = pool.query(
-            'select Host,User from user'
-          );
-          const users = await usersQuery;
-          console.log( users );
         }
       } else {
         message = 'Invalid or expired link.'
@@ -189,7 +196,7 @@ export const nicMySQL: HttpFunction = async (req, res) => {
 
   } else if ( req.method === 'POST' && req.path === '/requests') {
     if ( req.body.token && req.body.email ) {
-      if ( req.body.email.match(/^.+@nic\.bc\.ca|.+@northislandcollege\.ca$/) ) {
+      if ( req.body.email.match(/^.+@nic\.bc\.ca|.+@northislandcollege\.ca|.+@koehler.ca$/) ) {
         const response = await axios.post(
           'https://www.google.com/recaptcha/api/siteverify',
           querystring.stringify({
@@ -209,6 +216,26 @@ export const nicMySQL: HttpFunction = async (req, res) => {
           const doc = docSnap.data();
           console.log( 'new request successfully created' );
           console.log( doc );
+          let transporter = nodemailer.createTransport({
+            host: "email-smtp.ca-central-1.amazonaws.com",
+            port: 587,
+            secure: false,
+            requireTLS: true,
+            auth: {
+              user: process.env.SMTP_USER, // AWS SES user
+              pass: process.env.SMTP_PASS // AWS SES password
+            }
+          });
+          let info = await transporter.sendMail({
+            from: 'no-reply@nic.koehler.ca', // PUT YOUR DOMAIN HERE
+            to: req.body.email, // list of receivers
+            subject: "Configure Your MySQL Account", // Subject line
+            text: "Follow this link to configure your MySQL account: http://localhost:8082/verify-mysql-account/" + newRequest.token, // plain text body
+//            html: '<p>Follow this link to configure your MySQL account: <a href="http://localhost:8082/verify-mysql-account/' + newRequest.token + '">Confirmation Link</a>' // HTML version
+          });
+          console.log("Message sent: %s", info.messageId);
+          console.log( info );
+
         } else {
           console.log( 'recaptcha fail' );
           console.log( response.data );
