@@ -230,8 +230,10 @@ export const nicMySQL: HttpFunction = async (req, res) => {
             from: 'no-reply@nic.koehler.ca', // PUT YOUR DOMAIN HERE
             to: req.body.email, // list of receivers
             subject: "Configure Your MySQL Account", // Subject line
-            text: "Follow this link to configure your MySQL account: http://localhost:8082/verify-mysql-account/" + newRequest.token, // plain text body
-//            html: '<p>Follow this link to configure your MySQL account: <a href="http://localhost:8082/verify-mysql-account/' + newRequest.token + '">Confirmation Link</a>' // HTML version
+            text: "Follow this link to configure your MySQL account: " +
+              process.env.FRONTEND_URL +
+              "/verify-mysql-account/" +
+              newRequest.token
           });
           console.log("Message sent: %s", info.messageId);
           console.log( info );
