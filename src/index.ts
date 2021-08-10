@@ -92,12 +92,18 @@ const accounts = db.collection('accounts');
 
 async function createOrUpadateMySQLAccount( account: string, password: string ) {
   pool = pool || (await createPoolAndEnsureSchema());
+  const db_name = account + '_db0001';
+  const priv_level = db_name + '.*';
+  const create_db = 'create database if not exists ' + db_name;
+  const grant_all = 'grant all on ' + priv_level + ' to ' + account;
   await pool.query( 'create user if not exists ? identified by ?', [account,password]);
   await pool.query( 'alter user if exists ? identified by ?', [account,password]);
+  await pool.query( create_db );
   await pool.query( 'grant select on employees.* to ?', [account]);
   await pool.query( 'grant select on menagerie.* to ?', [account]);
   await pool.query( 'grant select on sakila.* to ?', [account]);
   await pool.query( 'grant select on world_x.* to ?', [account]);
+  await pool.query( grant_all );
 }
 
 async function getAccountFromEmail( email: string ) {
