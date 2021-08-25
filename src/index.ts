@@ -147,10 +147,13 @@ export const nicMySQL: HttpFunction = async (req, res) => {
         message: accountSnapshot.empty ? 'create' : 'update',
         email
       } );
+      console.log( 'Fetched valid request for: ' + email );
+      console.log( 'with token: ' + token );
     } else {
       res.json( {
         message: "Invalid or expired link"
       } );
+      console.log( 'Invalid or expired token: ' + token );
     }
 
   } else if ( req.method === 'POST' && req.path === '/accounts') {
@@ -166,7 +169,7 @@ export const nicMySQL: HttpFunction = async (req, res) => {
             lastAccount = result.account;
           });
           await createOrUpadateMySQLAccount( lastAccount, req.body.password );
-          message = `Updated account: ${lastAccount}`;
+          message = `Updated MySQL account: ${lastAccount} (for ${email})`;
         } else {
           let lastAccount = ''
           const accountSnapshot = await accounts
@@ -189,7 +192,7 @@ export const nicMySQL: HttpFunction = async (req, res) => {
             account
           } );
           await createOrUpadateMySQLAccount( account, req.body.password );
-          message = `Added new account: ${account}`;
+          message = `Created MySQL account: ${account} (for ${email})`;
         }
       } else {
         message = 'Invalid or expired link.'
@@ -218,10 +221,6 @@ export const nicMySQL: HttpFunction = async (req, res) => {
             createdAt: Timestamp.now()
           };
           const docRef = await collection.add( newRequest );
-          const docSnap = await docRef.get();
-          const doc = docSnap.data();
-          console.log( 'new request successfully created' );
-          console.log( doc );
           let transporter = nodemailer.createTransport({
             host: "email-smtp.ca-central-1.amazonaws.com",
             port: 587,
@@ -241,8 +240,7 @@ export const nicMySQL: HttpFunction = async (req, res) => {
               "/verify-mysql-account/" +
               newRequest.token
           });
-          console.log("Message sent: %s", info.messageId);
-          console.log( info );
+          console.log( 'Initiated request for: ' + req.body.email );
 
         } else {
           console.log( 'recaptcha fail' );
