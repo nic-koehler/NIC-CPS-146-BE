@@ -8,6 +8,8 @@ good_to_go=true
 [[ -z "${SMTP_USER}" ]] && good_to_go=false && echo SMTP_USER undefined
 [[ -z "${SMTP_PASS}" ]] && good_to_go=false && echo SMTP_PASS undefined
 [[ -z "${FRONTEND_URL}" ]] && good_to_go=false && echo FRONTEND_URL undefined
+[[ -z "${SYNAPSE_REGISTRATION_URL}" ]] && good_to_go=false && echo SYNAPSE_REGISTRATION_URL undefined
+[[ -z "${SYNAPSE_REGISTRATION_SHARED_SECRET}" ]] && good_to_go=false && echo SYNAPSE_REGISTRATION_SHARED_SECRET undefined
 if $good_to_go ; then
   gcloud functions deploy nicMySQL --allow-unauthenticated \
     --trigger-http \
@@ -21,5 +23,7 @@ DB_NAME=$DB_NAME,\
 CLOUD_SQL_CONNECTION_NAME=$CLOUD_SQL_CONNECTION_NAME,\
 SMTP_USER=$SMTP_USER,\
 SMTP_PASS=$SMTP_PASS,\
-FRONTEND_URL=$FRONTEND_URL
+FRONTEND_URL=$FRONTEND_URL,\
+SYNAPSE_REGISTRATION_URL=$SYNAPSE_REGISTRATION_URL,\
+SYNAPSE_REGISTRATION_SHARED_SECRET=$SYNAPSE_REGISTRATION_SHARED_SECRET
 fi

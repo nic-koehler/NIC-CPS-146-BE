@@ -25,6 +25,10 @@ certain requests from the frontend.
 
 `FRONTEND_URL` is the protocol and domain for the frontend website.
 
+`SYNAPSE_REGISTRATION_URL` is the Synapse registration URL.
+
+`SYNAPSE_REGISTRATION_SHARED_SECRET` is the Synapse registration shared secret.
+
 ## Deploying to Google Cloud Functions
 
-`gcloud functions deploy nicMySQL --allow-unauthenticated --trigger-http --runtime nodejs12 --set-env-vars  GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,RECAPTCHA_SECRET=$RECAPTCHA_SECRET,DB_USER=$DB_USER,DB_PASS=$DB_PASS,DB_NAME=$DB_NAME,CLOUD_SQL_CONNECTION_NAME=$CLOUD_SQL_CONNECTION_NAME,SMTP_USER=$SMTP_USER,SMTP_PASS=$SMTP_PASS,FRONTEND_URL=$FRONTEND_URL`
+see `deploy.sh`

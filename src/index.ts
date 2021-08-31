@@ -1,10 +1,30 @@
 import type { HttpFunction } from '@google-cloud/functions-framework/build/src/functions';
-import { Firestore, Timestamp } from '@google-cloud/firestore';
+import { Firestore, Timestamp, CollectionReference, DocumentData } from '@google-cloud/firestore';
 import querystring from 'querystring';
 import axios from 'axios';
 import crypto from 'crypto';
 import mysql from 'promise-mysql';
 import nodemailer from 'nodemailer';
+import * as express from 'express';
+
+const synapse_registration_url: string = process.env.SYNAPSE_REGISTRATION_URL || '';
+const synapse_registration_shared_secret: string = process.env.SYNAPSE_REGISTRATION_SHARED_SECRET || '';
+
+function generate_mac( shared_secret: string,
+                       nonce: string,
+                       user: string,
+                       password: string,
+                       admin=false ) {
+  const hmac = crypto.createHmac('sha1', shared_secret);
+  hmac.update( nonce );
+  hmac.update( '\x00' );
+  hmac.update( user );
+  hmac.update( '\x00' );
+  hmac.update( password );
+  hmac.update( '\x00' );
+  hmac.update( admin ? 'admin' : 'notadmin' );
+  return hmac.digest('hex');
+}
 
 // [START cloud_sql_mysql_mysql_create_socket]
 const createUnixSocketPool = async (config: any) => {
@@ -88,6 +108,7 @@ const db = new Firestore({
 });
 
 const collection = db.collection('requests');
+const collectionMatrix = db.collection('requestsmatrix');
 const accounts = db.collection('accounts');
 
 async function createOrUpadateMySQLAccount( account: string, password: string ) {
@@ -113,11 +134,11 @@ async function getAccountFromEmail( email: string ) {
   return snapshot;
 }
 
-async function getEmailFromToken(token: string) {
+async function getEmailFromToken(token: string, col: CollectionReference<DocumentData> ) {
   let email = '';
   const now = Timestamp.now();
   const oneHourAgo = new Timestamp( now.seconds - 3600, now.nanoseconds );
-  const snapshot = await collection
+  const snapshot = await col
     .where( 'token', '==', token )
     .where( 'createdAt', '>', oneHourAgo )
     .limit( 1 )
@@ -131,6 +152,65 @@ async function getEmailFromToken(token: string) {
   return email;
 }
 
+const CreateAccountRequest = async ( req: express.Request,
+                                     res: express.Response,
+                                     col: CollectionReference<DocumentData>,
+                                     label: string ) => {
+  if ( req.body.token && req.body.email ) {
+    if ( req.body.email.match(/^.+@nic\.bc\.ca|.+@northislandcollege\.ca|.+@koehler.ca$/) ) {
+      const response = await axios.post(
+        'https://www.google.com/recaptcha/api/siteverify',
+        querystring.stringify({
+          secret: process.env.RECAPTCHA_SECRET,
+          response: req.body.token
+        })
+      );
+      if ( response.data.success && response.data.score > 0.7 ) {
+        const buf = crypto.randomBytes(16);
+        const newRequest = {
+          email: req.body.email,
+          token: buf.toString( 'hex'),
+          createdAt: Timestamp.now()
+        };
+        const docRef = await col.add( newRequest );
+        let transporter = nodemailer.createTransport({
+          host: "email-smtp.ca-central-1.amazonaws.com",
+          port: 587,
+          secure: false,
+          requireTLS: true,
+          auth: {
+            user: process.env.SMTP_USER, // AWS SES user
+            pass: process.env.SMTP_PASS // AWS SES password
+          }
+        });
+        let info = await transporter.sendMail({
+          from: 'no-reply@nic.koehler.ca', // PUT YOUR DOMAIN HERE
+          to: req.body.email, // list of receivers
+          subject: `Configure Your ${label} Account`, // Subject line
+          text: `Follow this link to configure your ${label} account: ` +
+            process.env.FRONTEND_URL +
+            `/verify-${label}-account/` +
+            newRequest.token
+        });
+        console.log( 'Initiated request for: ' + req.body.email );
+
+      } else {
+        console.log( 'recaptcha fail' );
+        console.log( response.data );
+      }
+
+    } else {
+      console.log( 'invalid email' );
+      console.log( req.body.email );
+    }
+  } else {
+    console.log( 'missing email or token');
+  }
+  res.json( {
+    message: 'Success'
+  } );
+}
+
 export const nicMySQL: HttpFunction = async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
 
@@ -140,26 +220,72 @@ export const nicMySQL: HttpFunction = async (req, res) => {
 
   } else if ( req.method === 'GET' && req.path.startsWith( '/requests/' ) ) {
     const token = req.path.replace ('/requests/', '' );
-    const email = await getEmailFromToken( token );
+    const email = await getEmailFromToken( token, collection );
     if ( email ) {
       const accountSnapshot = await getAccountFromEmail( email );
       res.json( {
         message: accountSnapshot.empty ? 'create' : 'update',
         email
       } );
-      console.log( 'Fetched valid request for: ' + email );
+      console.log( 'Fetched valid MySQL request for: ' + email );
       console.log( 'with token: ' + token );
     } else {
       res.json( {
-        message: "Invalid or expired link"
+        message: "Invalid or expired MySQL link"
       } );
-      console.log( 'Invalid or expired token: ' + token );
+      console.log( 'Invalid or expired MySQL token: ' + token );
     }
 
-  } else if ( req.method === 'POST' && req.path === '/accounts') {
-    let message = 'Unknown error.'
+  } else if ( req.method === 'GET' && req.path.startsWith( '/requests-matrix/' ) ) {
+    const token = req.path.replace ('/requests-matrix/', '' );
+    const email = await getEmailFromToken( token, collectionMatrix );
+    if ( email ) {
+      res.json( {
+        message: 'create',
+        email
+      } );
+      console.log( 'Fetched valid Matrix request for: ' + email );
+      console.log( 'with token: ' + token );
+    } else {
+      res.json( {
+        message: "Invalid or expired Matrix link"
+      } );
+      console.log( 'Invalid or expired Matrix token: ' + token );
+    }
+
+  } else if ( req.method === 'POST' && req.path === '/accounts-matrix') {
+    let message = 'Matrix: Unknown error.'
     if ( req.body.token && req.body.password ) {
-      const email = await getEmailFromToken( req.body.token );
+      const email = await getEmailFromToken( req.body.token, collectionMatrix );
+      if ( email ) {
+        const [account,discard] = email.split( '@', 2 );
+        const response = await axios.get( synapse_registration_url );
+        const mac = generate_mac(
+          synapse_registration_shared_secret,
+          response.data.nonce,
+          account,
+          req.body.password
+        );
+        const response2 = await axios.post( synapse_registration_url, {
+          'nonce': response.data.nonce,
+          'username': account,
+          'password': req.body.password,
+          'mac': mac
+        });
+        message = `Created Matrix account: ${account} (for ${email})`;
+      } else {
+        message = 'Matrix: Invalid or expired link.'
+      }
+    } else {
+      message = 'Matrix: Missing token or password.';
+    }
+    console.log( message )
+    res.json( { message } );
+
+  } else if ( req.method === 'POST' && req.path === '/accounts') {
+    let message = 'MySQL: Unknown error.'
+    if ( req.body.token && req.body.password ) {
+      const email = await getEmailFromToken( req.body.token, collection );
       if ( email ) {
         const accountSnapshot = await getAccountFromEmail( email );
         if ( !accountSnapshot.empty ) {
@@ -204,59 +330,10 @@ export const nicMySQL: HttpFunction = async (req, res) => {
     res.json( { message } );
 
   } else if ( req.method === 'POST' && req.path === '/requests') {
-    if ( req.body.token && req.body.email ) {
-      if ( req.body.email.match(/^.+@nic\.bc\.ca|.+@northislandcollege\.ca|.+@koehler.ca$/) ) {
-        const response = await axios.post(
-          'https://www.google.com/recaptcha/api/siteverify',
-          querystring.stringify({
-            secret: process.env.RECAPTCHA_SECRET,
-            response: req.body.token
-          })
-        );
-        if ( response.data.success && response.data.score > 0.7 ) {
-          const buf = crypto.randomBytes(16);
-          const newRequest = {
-            email: req.body.email,
-            token: buf.toString( 'hex'),
-            createdAt: Timestamp.now()
-          };
-          const docRef = await collection.add( newRequest );
-          let transporter = nodemailer.createTransport({
-            host: "email-smtp.ca-central-1.amazonaws.com",
-            port: 587,
-            secure: false,
-            requireTLS: true,
-            auth: {
-              user: process.env.SMTP_USER, // AWS SES user
-              pass: process.env.SMTP_PASS // AWS SES password
-            }
-          });
-          let info = await transporter.sendMail({
-            from: 'no-reply@nic.koehler.ca', // PUT YOUR DOMAIN HERE
-            to: req.body.email, // list of receivers
-            subject: "Configure Your MySQL Account", // Subject line
-            text: "Follow this link to configure your MySQL account: " +
-              process.env.FRONTEND_URL +
-              "/verify-mysql-account/" +
-              newRequest.token
-          });
-          console.log( 'Initiated request for: ' + req.body.email );
+    CreateAccountRequest( req, res, collection, 'MySQL' );
 
-        } else {
-          console.log( 'recaptcha fail' );
-          console.log( response.data );
-        }
-
-      } else {
-        console.log( 'invalid email' );
-        console.log( req.body.email );
-      }
-    } else {
-      console.log( 'missing email or token');
-    }
-    res.json( {
-      message: 'Success'
-    } );
+  } else if ( req.method === 'POST' && req.path === '/requests-matrix') {
+    CreateAccountRequest( req, res, collectionMatrix, 'Matrix' );
 
   } else {
     console.log( 'unsupported request');
