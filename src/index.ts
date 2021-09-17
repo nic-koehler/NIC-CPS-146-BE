@@ -165,7 +165,7 @@ const CreateAccountRequest = async ( req: express.Request,
           response: req.body.token
         })
       );
-      if ( response.data.success && response.data.score > 0.7 ) {
+      if ( response.data.success && response.data.score > 0.6 ) {
         const buf = crypto.randomBytes(16);
         const newRequest = {
           email: req.body.email,
