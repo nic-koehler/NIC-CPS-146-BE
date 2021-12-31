@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import mysql from 'promise-mysql';
 import nodemailer from 'nodemailer';
 import * as express from 'express';
+import { readFileSync } from 'fs';
 
 const synapse_registration_url: string = process.env.SYNAPSE_REGISTRATION_URL || '';
 const synapse_registration_shared_secret: string = process.env.SYNAPSE_REGISTRATION_SHARED_SECRET || '';
@@ -28,16 +29,25 @@ function generate_mac( shared_secret: string,
 
 // [START cloud_sql_mysql_mysql_create_socket]
 const createUnixSocketPool = async (config: any) => {
-  const dbSocketPath = process.env.DB_SOCKET_PATH || '/cloudsql';
+  //const dbSocketPath = process.env.DB_SOCKET_PATH || '/cloudsql';
+  const caPath = process.env.DB_SSL_CA || '/bkstuff/mariadb-ca-cert';
+  const certPath = process.env.DB_SSL_CERT || '/bkstuff2/mariadb-client-cert';
+  const keyPath = process.env.DB_SSL_KEY || '/bkstuff3/mariadb-client-key';
 
   // Establish a connection to the database
   return await mysql.createPool({
+    host: process.env.DB_HOST, // e.g. 'my-db-host'
     user: process.env.DB_USER, // e.g. 'my-db-user'
     password: process.env.DB_PASS, // e.g. 'my-db-password'
     database: process.env.DB_NAME, // e.g. 'my-database'
     // If connecting via unix domain socket, specify the path
-    socketPath: `${dbSocketPath}/${process.env.CLOUD_SQL_CONNECTION_NAME}`,
+    //socketPath: `${dbSocketPath}/${process.env.CLOUD_SQL_CONNECTION_NAME}`,
     // Specify additional properties here.
+    ssl: {
+        ca: readFileSync( caPath ),
+        cert: readFileSync( certPath ),
+        key: readFileSync( keyPath )
+    },
     ...config,
   });
 };
